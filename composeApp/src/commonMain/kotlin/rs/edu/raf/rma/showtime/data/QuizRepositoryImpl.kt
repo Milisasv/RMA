@@ -1,9 +1,17 @@
 package rs.edu.raf.rma.showtime.data
 
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import rs.edu.raf.rma.core.auth.AuthStore
+import rs.edu.raf.rma.core.auth.model.AuthData
+import rs.edu.raf.rma.core.auth.model.AuthState
 import rs.edu.raf.rma.core.db.AppDatabase
 import rs.edu.raf.rma.showtime.db.MovieEntity
+import rs.edu.raf.rma.showtime.db.QuizStatsEntity
 import rs.edu.raf.rma.showtime.domain.QuizAnswer
 import rs.edu.raf.rma.showtime.domain.QuizQuestion
 import rs.edu.raf.rma.showtime.domain.QuizQuestionType
@@ -16,10 +24,27 @@ import rs.edu.raf.rma.showtime.network.model.QuizSubmitBody
 class QuizRepositoryImpl(
     private val database: AppDatabase,
     private val privateApi: MoviesApi,
+    private val authStore: AuthStore,
 ) : QuizRepository {
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     override fun observeStats(): Flow<QuizStats> =
-        database.quizStatsDao().observeStats().map { it?.toDomain() ?: QuizStats() }
+        authStore.authState
+            .map { state ->
+                (state as? AuthState.Authenticated)
+                    ?.data
+                    ?.quizStatsId()
+            }
+            .distinctUntilChanged()
+            .flatMapLatest { statsId ->
+                if (statsId == null) {
+                    flowOf(QuizStats())
+                } else {
+                    database.quizStatsDao()
+                        .observeStats(statsId)
+                        .map { it?.toDomain() ?: QuizStats() }
+                }
+            }
 
     override suspend fun buildSession(): List<QuizQuestion> {
         val pool = database.movieDao()
@@ -73,8 +98,9 @@ class QuizRepositoryImpl(
     }
 
     override suspend fun saveResult(result: QuizResult) {
+        val statsId = authStore.currentAuthData().quizStatsId()
         val dao = database.quizStatsDao()
-        val current = dao.getStats() ?: rs.edu.raf.rma.showtime.db.QuizStatsEntity()
+        val current = dao.getStats(statsId) ?: QuizStatsEntity(id = statsId)
         dao.upsertStats(
             current.copy(
                 bestScore = kotlin.math.max(current.bestScore, result.score),
@@ -192,6 +218,24 @@ class QuizRepositoryImpl(
         val image = images.firstOrNull { it !in usedImages } ?: return null
         usedImages += image
         return image
+    }
+
+    private fun AuthData.quizStatsId(): Int {
+        val key = when {
+            username.isNotBlank() -> "username:${username.trim().lowercase()}"
+            userId != null -> "id:$userId"
+            !accessToken.isNullOrBlank() -> "token:${accessToken.takeLast(24)}"
+            else -> "guest"
+        }
+        return key.stablePositiveHash()
+    }
+
+    private fun String.stablePositiveHash(): Int {
+        var hash = 17
+        for (char in this) {
+            hash = hash * 31 + char.code
+        }
+        return hash and Int.MAX_VALUE
     }
 
     private fun String.toParts(): List<String> =

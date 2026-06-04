@@ -14,7 +14,6 @@ import kotlinx.coroutines.runBlocking
 import org.koin.dsl.module
 import rs.edu.raf.rma.core.auth.AuthStore
 import rs.edu.raf.rma.core.db.AppDatabase
-import rs.edu.raf.rma.core.auth.model.AuthState
 import rs.edu.raf.rma.networking.HttpClientFactory
 import rs.edu.raf.rma.showtime.network.MoviesApi
 import rs.edu.raf.rma.showtime.network.createMoviesApi
@@ -59,11 +58,11 @@ private fun HttpClientConfig<*>.installAuthPlugin(
 
     on(SetupRequest) { request ->
         val authStore = authStoreLazy.value
-        val authState = authStore.authState.value
-        if (authState is AuthState.Authenticated) {
+        val authData = runBlocking { authStore.currentAuthData() }
+        if (!authData.accessToken.isNullOrBlank()) {
             request.header(
                 key = HttpHeaders.Authorization,
-                value = "Bearer ${authState.data.accessToken}",
+                value = "Bearer ${authData.accessToken}",
             )
         }
     }

@@ -38,6 +38,10 @@ class AuthStore(
         persistence.updateData { AuthData.empty() }
     }
 
+    suspend fun currentAuthData(): AuthData {
+        return persistence.data.first()
+    }
+
     suspend fun awaitInitialAuthState(): AuthState {
         return persistence.data
             .map { it.asAuthenticationState() }

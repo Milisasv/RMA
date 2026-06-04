@@ -41,6 +41,7 @@ val showtimeModule = module {
         QuizRepositoryImpl(
             database = get(),
             privateApi = get(Qualifiers.Authenticated),
+            authStore = get(),
         )
     } bind QuizRepository::class
 
