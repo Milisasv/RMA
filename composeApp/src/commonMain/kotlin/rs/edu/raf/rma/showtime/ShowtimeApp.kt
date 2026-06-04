@@ -16,16 +16,17 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavController
 import androidx.navigation.NavGraphBuilder
-import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -44,6 +45,8 @@ import rs.edu.raf.rma.showtime.ui.quiz.QuizViewModel
 import rs.edu.raf.rma.showtime.ui.userlist.FavoritesViewModel
 import rs.edu.raf.rma.showtime.ui.userlist.UserListScreen
 import rs.edu.raf.rma.showtime.ui.userlist.WatchlistViewModel
+
+private const val MOVIE_DETAIL_ROUTE = "movie"
 
 @Composable
 fun ShowtimeApp() {
@@ -64,10 +67,17 @@ fun ShowtimeApp() {
 @Composable
 private fun MainNavigation() {
     val navController = rememberNavController()
+    var selectedMovieId by rememberSaveable { mutableStateOf("") }
+
     val entry by navController.currentBackStackEntryAsState()
     val currentRoute = entry?.destination?.route.orEmpty()
     val tabs = MainTab.entries
     val showBottomBar = tabs.any { it.route == currentRoute }
+
+    val openMovie: (String) -> Unit = { movieId ->
+        selectedMovieId = movieId
+        navController.navigate(MOVIE_DETAIL_ROUTE)
+    }
 
     Scaffold(
         bottomBar = {
@@ -90,23 +100,31 @@ private fun MainNavigation() {
             startDestination = MainTab.Movies.route,
             modifier = Modifier.padding(padding),
         ) {
-            mainGraph(navController)
+            mainGraph(
+                navController = navController,
+                selectedMovieIdProvider = { selectedMovieId },
+                onMovieClick = openMovie,
+            )
         }
     }
 }
 
-private fun NavGraphBuilder.mainGraph(navController: NavController) {
+private fun NavGraphBuilder.mainGraph(
+    navController: NavController,
+    selectedMovieIdProvider: () -> String,
+    onMovieClick: (String) -> Unit,
+) {
     composable(MainTab.Movies.route) {
         val viewModel = koinViewModel<MoviesListViewModel>()
-        MoviesListScreen(viewModel = viewModel, onMovieClick = { navController.navigate("movie/$it") })
+        MoviesListScreen(viewModel = viewModel, onMovieClick = onMovieClick)
     }
     composable(MainTab.Favorite.route) {
         val viewModel = koinViewModel<FavoritesViewModel>()
-        UserListScreen(viewModel = viewModel, onMovieClick = { navController.navigate("movie/$it") })
+        UserListScreen(viewModel = viewModel, onMovieClick = onMovieClick)
     }
     composable(MainTab.Watchlist.route) {
         val viewModel = koinViewModel<WatchlistViewModel>()
-        UserListScreen(viewModel = viewModel, onMovieClick = { navController.navigate("movie/$it") })
+        UserListScreen(viewModel = viewModel, onMovieClick = onMovieClick)
     }
     composable(MainTab.Quiz.route) {
         val viewModel = koinViewModel<QuizViewModel>()
@@ -116,11 +134,8 @@ private fun NavGraphBuilder.mainGraph(navController: NavController) {
         val viewModel = koinViewModel<ProfileViewModel>()
         ProfileScreen(viewModel = viewModel)
     }
-    composable(
-        route = "movie/{movieId}",
-        arguments = listOf(navArgument("movieId") { type = NavType.StringType }),
-    ) { entry ->
-        val movieId = entry.arguments?.getString("movieId").orEmpty()
+    composable(MOVIE_DETAIL_ROUTE) {
+        val movieId = selectedMovieIdProvider()
         val viewModel = koinViewModel<MovieDetailViewModel>(parameters = { parametersOf(movieId) })
         MovieDetailScreen(viewModel = viewModel, onBack = { navController.navigateUp() })
     }
